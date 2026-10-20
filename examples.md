@@ -1,0 +1,76 @@
+# Тестовые макеты
+
+Прогоняй навык на этих макетах после каждой правки правил. Сверяй находки с ожидаемыми.
+Пропало ожидаемое — регресс. Появилось лишнее — проверь, не ложное ли оно.
+
+Пометки в тестовых файлах ставь только с согласия владельца. Для проверки без записи — режим «Только отчёт» или `annotate.js` с `MODE = 'dry'`.
+
+Ветка для всех примеров: `https://www.figma.com/design/0lJVHUODX8w8QZL7QXC3Eo/branch/6XpUW3E5zUXReQ3JSO4jIS/`, страница «↪︎ Основной сценарий косметика» (`node-id=0-1`).
+
+## Ручное ревью команды ДС (эталон)
+
+Комментарии ревьюера к этому файлу и правила, которые их ловят:
+
+| Комментарий | Где | Правило |
+|---|---|---|
+| Шторку нужно сделать через компонент шторки и компоненты листа | «выбор способа получения», «Часовые пояса» | `manual-bottomsheet` (E); строки списка — паттерн `P` по скриншоту |
+| Точно ли красный крест подходит по смыслу? Ничего критичного — можно Warning | «Получение / Истек срок годности» | `illustration-meaning` (W) → ИИ превращает в `P` с заменой на Warning |
+| Порядок по важности сверху вниз: главная кнопка сверху | Вертикальные стеки кнопок | `button-order` (P) |
+| Не использовать Primary для «Назад» — слишком акцентно | «Carts list / Loading error» (кнопка внутри 🍏 Empty State), «Получение / Истек срок годности» («Закрыть») | `secondary-primary` (P) |
+| Есть старые стили — найти плагином ДС | По всему файлу: 🔴 и 🔥 Body/Caption, 🏀 Title/Body, `main-red/…`, `cosmetic-palette/…` | `deprecated-style` (E) с подсказкой про плагин |
+| Стилей с красным кругом и голубым ромбом быть не должно | По всему файлу | `deprecated-style`, `deprecated-token` (E) |
+
+Решения команды ДС:
+- Компоненты 🍋 — платформенные компоненты команды Платформы. Не ошибка, не помечаем.
+- Hex на иконках в продуктовых макетах — ошибка (`icon-hex`).
+
+## 1. Главная — секция «главная м.косметик» (`node-id=8034-3659`)
+
+Четыре экрана. Ожидаемые находки:
+
+| Правило | Где | Что |
+|---|---|---|
+| `container-spacing` | «Group Section» на экранах «Больше» | Gap 4 px между секциями без `page/margin` |
+| `container-radius` | Секции «Frame 2136141797», «Category list» | Скругление на `corner/28` вместо `container/section` |
+| `container-radius` | Секция на экране «Больше» (второй) | Токен `component/section` |
+| `outdated-library` | Три секции на экране «Быстрее» (длинный) | Токен `сontainer/section` с кириллицей — файл не принял обновление |
+| `deprecated-token` | Плитки категорий | `🔴 surface/muted/default`, `🔥 surface/primary/default` |
+| `deprecated-component` | Экран «Быстрее» | `🔥 [New] Title / Mobile / For page` |
+| `customized` | `🍏 Header [ver 1.0]`, `🍏 Tab Bar [Target] / Cosmetic` | Отступы, цвет иконки |
+| `icon-hex` | Категорийные иконки «скидки», «Косметика», «новинки» | Иконки собраны вручную, цвета hex — одна пометка на иконку |
+| `detached` | `Base / 40 / Logo / Main Magnit / Colored` | Раздетаченная иконка |
+| `hex`, `no-text-style` | Баннеры, собранные вручную | Заливки, градиенты и текст без токенов и стилей |
+
+Не должно быть:
+- пометок на компонентах 🍋 (`🍋 Search`, `🍋 Category List`, `🍋 Card cell`, `🍋 Row card`);
+- тени-подложки у самих экранов (стиль «Display»);
+- `local-asset` на масках с фото;
+- отдельной пометки на каждый вектор внутри самодельной иконки.
+
+## 2. Подарочные карты MVP (`node-id=19180-13660`)
+
+Больше 40 экранов: проверятся первые 40, навык предложит прислать флоу частями.
+
+| Правило | Что |
+|---|---|
+| `web-component` | `🏀 Input`, `🏀 Buttons / Base / Primary`, `🏀 Buttons / Base / Secondary`, `🏀 Skeleton`, `🏀 Empty State` |
+| `web-token`, `deprecated-style` | Токены `🏀 text/primary`, `🏀 surface/primary/default`, стили `🏀 Title/Large`, `🏀 Body/Small/Accent-low` |
+| `deprecated-token` | `🔴 text/primary`, `🔴 surface/primary/default` |
+| `deprecated-component` | `🔴 Home indicator / Android` (замена — из Platform Components 2.0), `🔴 Top navigation / Default` |
+| `detached` | Фрейм `🔥 Tabs` |
+| `customized` | `🍏 Input` — отступы, `🍏 Button / Base / Primary` — цвет иконки |
+| `secondary-primary`, `illustration-meaning` | «Carts list / Loading error»: Primary «Назад» и Error в 🍏 Empty State |
+
+Иконки `Base / 20 / Outline / …` — даже с пробелом в начале названия — не должны попадать в `non-ds`.
+`🍏 Inline button / Base / Primary` не считается Primary-кнопкой экрана (`multi-primary` на «Списке адресов» — ложное).
+
+## 3. Шторки
+
+| Экран | Ожидаемое |
+|---|---|
+| «выбор способа получения» (`8044:28198`) | `manual-bottomsheet` на фрейме «bottomsheet»; внутри — `deprecated-component` `🔴 Title`, `detached` `🔥 Keyboard&button / All` |
+| «Часовые пояса» | `manual-bottomsheet` |
+
+## Как добавлять примеры
+
+Новый разбор ДС → новая строка в таблице «Ручное ревью» и ожидаемые находки. Комментарии Figma через Figma MCP не читаются — переноси их сюда текстом.
