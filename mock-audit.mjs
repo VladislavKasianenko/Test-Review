@@ -73,7 +73,10 @@ const cardKids = () => [
 const flowScreen = (id, name, extra = []) => node('FRAME', name, { id, height: 800, fills: [solid(0.9, 0.9, 0.9, 'v1')] }, [inst(card, { width: 328, height: 156 }, cardKids()), inst(card, { width: 328, height: 156 }, cardKids()), inst(card, { width: 328, height: 156 }, cardKids()), field(), ...extra]);
 // Promo — компонент команды, собранный из 🍏 целиком: пометки быть не должно
 const scrA = flowScreen('2:2', 'Галерея промокодов', [inst(promo, { width: 328, height: 100 }, [inst(comp('S', 'kbtn3', true, '🍏 Button / Base / Primary'), { width: 300, height: 48 }, [txt('Перейти')])])]);
-const scrB = flowScreen('2:3', 'Промокод выбран');
+// Тост: цвет «переопределён», но совпадает с мастером — не кастомизация; у второго тоста цвет другой — кастомизация
+const toastMc = { ...comp('S', 'ktoast', true, '🍏 Toast'), fills: [solid(0.3, 0.3, 0.3, 'v1')] };
+const toast = (id, fills) => inst(toastMc, { id, width: 328, height: 48, fills, overrides: [{ id, overriddenFields: ['fills'] }] });
+const scrB = flowScreen('2:3', 'Промокод выбран', [toast('3:1', [solid(0.3, 0.3, 0.3, 'v1')]), toast('3:2', [solid(1, 0, 0, 'v1')])]);
 const flow = node('SECTION', 'Промокоды', { id: '2:1', width: 2000, height: 1000 }, [scrA, scrB]);
 flow.parent = page; idx(flow);
 const res2 = await run('2:1');
@@ -88,6 +91,8 @@ else {
   if (/Применить/.test(g.m)) errors.push('«Card»: 🍏 Button внутри не должна попадать в пометку');
   if (g.s !== 'E') errors.push('«Card»: старый стиль внутри — критичность E');
 }
+const toastG = res2.groups.filter(g => g.r === 'customized' && /Toast/.test(g.m));
+if (toastG.length !== 1 || toastG[0].ids[0] !== '3:2') errors.push('Тост с цветом как у мастера — не кастомизация; с другим цветом — кастомизация');
 if (res2.groups.some(g => /Promo/.test(g.m))) errors.push('Компонент команды, собранный из 🍏, не помечается');
 if (!(res2.skipped.product >= 1)) errors.push('Чистый компонент команды — в skipped.product');
 if (res2.groups.some(g => g.r === 'multi-primary')) errors.push('Кнопки внутри компонентов команды не считаются Primary экрана');

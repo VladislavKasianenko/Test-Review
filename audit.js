@@ -296,6 +296,20 @@ async function checkButtonOrder(n) {
 }
 
 // ---------- компоненты ----------
+// Слой мастер-компонента, соответствующий слою инстанса (I<инстанс>;<слой мастера>)
+const J = (v) => { try { return typeof v === 'symbol' ? 'mixed' : JSON.stringify(v); } catch (e) { return '?'; } };
+async function twin(n, oid) {
+  const { mc } = await master(n); if (!mc) return null;
+  if (oid === n.id) return mc;
+  const rest = oid.replace(/^I/, '').split(';').slice(n.id.replace(/^I/, '').split(';').length);
+  if (!rest.length) return null;
+  try { return await figma.getNodeByIdAsync(rest.length > 1 ? 'I' + rest.join(';') : rest[0]); } catch (e) { return null; }
+}
+// Переопределение, вернувшее значение мастера (выключили и включили, поменяли и вернули), — не кастомизация
+async function sameAsMaster(n, oid, sub, f) {
+  const t = await twin(n, oid); if (!t || !sub) return false;
+  try { return J(sub[f]) === J(t[f]); } catch (e) { return false; }
+}
 async function checkOverrides(n, name, g) {
   const bad = {}; const hidden = [];
   for (const o of n.overrides || []) {
@@ -310,6 +324,7 @@ async function checkOverrides(n, name, g) {
       }
       const ru = CFG.badOverride[f]; if (!ru) continue;
       const w = await where();
+      if (await sameAsMaster(n, o.id, o.id === n.id ? n : sub, f)) continue;
       (bad[ru] = bad[ru] || new Set()).add(w);
     }
   }
@@ -416,7 +431,7 @@ async function checkProduct(n, name, mc) {
   const where = mc.remote ? 'Компонент лежит в библиотеке команды — поправь его там и опубликуй обновление'
     : `Правь мастер-компонент${FILE_KEY ? ` ([открыть](https://www.figma.com/design/${FILE_KEY}/?node-id=${mc.id.replace(/:/g, '-')}))` : ''}`;
   add(n.id, 'product-component', res.sev, `«${name}» — компонент команды собран не только из 🍏. Внутри: ${res.parts.join('; ')}`,
-    `Собери «${name}» из 🍏 компонентов: лейблы и чипы — 🍏 Label / Chips / Badge, строки — 🍏 List, кнопки — 🍏 Button, цвета и тексты — 🍏 токены и стили. ${where} — исправится во всех копиях`, 'guide');
+    `Собери «${name}» из 🍏 компонентов:\nЛейблы и чипы — 🍏 Label / Chips / Badge\nСтроки — 🍏 List\nКнопки — 🍏 Button\nЦвета и тексты — 🍏 токены и стили\n${where} — исправится во всех копиях`, 'guide');
   Object.assign((CAPTURE || findings).at(-1), { p: res.parts, name }); // для сводки, если этот компонент вложен в другой
 }
 

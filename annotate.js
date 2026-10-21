@@ -95,21 +95,34 @@ function elsewhere(it) {
     });
     const listed = more.reduce((a, x) => a + x.n, 0);
     if (others > listed) parts.push(`и ещё ${others - listed} на других экранах`);
-    lines.push(`**Этот же элемент ещё в ${others} ${IN(others)} — поправь и их:** ${parts.join('; ')}`);
+    lines.push(`**Этот же элемент ещё в ${others} ${IN(others)} — поправь ${others === 1 ? 'и его' : 'и их'}:** ${parts.join('; ')}`);
   }
   if (it.similar) lines.push(`_Та же проблема ещё в ${it.similar} ${IN(it.similar)} у других элементов — без отдельной пометки._`);
   return lines;
 }
+// «Что не так» и «Как исправить» — списками, блоки — отдельными абзацами
+const bullets = (arr) => arr.map(x => `- ${x.trim().replace(/[.;]$/, '')}`).join('\n');
+function problem(m) {
+  // «X закастомлен: тени (…); цвет (…)» / «X собран не только из 🍏. Внутри: a; b» → заголовок + список
+  const mm = m.match(/^(.*?)(?::|\. Внутри:)\s+(.+;.+)$/s);
+  return mm ? `**Что не так:** ${mm[1]}:\n${bullets(mm[2].split(/;\s+/))}` : `**Что не так:** ${m}`;
+}
+function fixes(fx) {
+  const items = fx.includes('\n') ? fx.split('\n') : fx.split(/(?<=[.!])\s+(?=[А-ЯЁA-Z«🍏])/);
+  const list = items.map(x => x.trim()).filter(Boolean);
+  if (list.length < 2) return `**Как исправить:** ${fx}`;
+  const head = /:$/.test(list[0]) ? `**Как исправить:** ${list.shift()}` : '**Как исправить:**';
+  return `${head}\n${bullets(list)}`;
+}
 function markdown(it) {
   const [title, url] = link(it.g);
-  const lines = [
-    `**DS Review · ${SEV[it.s] || SEV.E}**${CHECK[it.r] ? ` · ${CHECK[it.r]}` : ''}`,
-    `**Что не так:** ${it.m}`,
-    `**Как исправить:** ${it.fx}`,
+  return [
+    `**DS Review · ${SEV[it.s] || SEV.E}**`,
+    problem(it.m),
+    fixes(it.fx),
     ...elsewhere(it),
     `**Гайд:** [${title}](${url})`,
-  ];
-  return lines.join('\n');
+  ].join('\n\n');
 }
 
 const root = await figma.getNodeByIdAsync(ROOT_ID);
