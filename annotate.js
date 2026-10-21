@@ -10,6 +10,8 @@ const ROOT_ID = '__NODE_ID__';
 const MODE = 'write';
 const ITEMS = [
   // { ids: ['12:34'], n: 1, s: 'E', r: 'hex', m: 'Что не так', fx: 'Как исправить', g: 'colors' },
+  // Тот же элемент в нескольких местах — одна пометка на ids[0], остальные места в more:
+  // { ids: ['12:34'], n: 7, scr: '12:1', more: [{ scr: '12:1', name: 'Экран', id: '12:40', n: 2 }, …], … },
 ];
 
 // ===================== НАСТРОЙКИ (правит команда ДС) =====================
@@ -20,8 +22,8 @@ const CHECK = {
   'outdated-library': 'Файл обновлен',
   'deprecated-component': 'Токены и компоненты из либы с 🍏', 'web-component': 'Токены и компоненты из либы с 🍏',
   'internal-component': 'Токены и компоненты из либы с 🍏', 'local-ds': 'Токены и компоненты из либы с 🍏',
-  'non-ds': 'Токены и компоненты из либы с 🍏', 'icon-hex': 'Токены и компоненты из либы с 🍏',
-  'local-component': 'Токены и компоненты из либы с 🍏', 'local-asset': 'Токены и компоненты из либы с 🍏',
+  'product-component': 'Токены и компоненты из либы с 🍏', 'icon-hex': 'Токены и компоненты из либы с 🍏',
+  'ds-lookalike': 'Токены и компоненты из либы с 🍏', 'local-asset': 'Токены и компоненты из либы с 🍏',
   'hex': 'Токены и компоненты из либы с 🍏', 'primitive': 'Токены и компоненты из либы с 🍏',
   'deprecated-token': 'Токены и компоненты из либы с 🍏', 'unknown-token': 'Токены и компоненты из либы с 🍏',
   'web-token': 'Токены и компоненты из либы с 🍏',
@@ -78,15 +80,35 @@ function link(g) {
   if (g && g.startsWith('c:')) return ['Страница компонента в Pole Mobile 2.0', PM + g.slice(2)];
   return LINKS[g] || LINKS.guide;
 }
+let FILE_KEY = null; try { FILE_KEY = figma.fileKey || null; } catch (e) {}
+const nodeUrl = (id) => FILE_KEY ? `https://www.figma.com/design/${FILE_KEY}/?node-id=${encodeURIComponent(id.replace(/:/g, '-'))}` : null;
+const IN = (n) => n % 10 === 1 && n % 100 !== 11 ? 'месте' : 'местах'; // «в 1 месте», «в 5 местах»
+// Другие места с той же проблемой у того же элемента: одна пометка вместо пометки на каждой копии
+function elsewhere(it) {
+  const more = it.more || [];
+  const lines = [];
+  if (more.length) {
+    const others = (it.n || 1) - 1;
+    const parts = more.map(x => {
+      const where = x.scr === it.scr ? 'на этом экране' : (nodeUrl(x.id) ? `[«${x.name}»](${nodeUrl(x.id)})` : `«${x.name}»`);
+      return `${where} — ${x.n}`;
+    });
+    const listed = more.reduce((a, x) => a + x.n, 0);
+    if (others > listed) parts.push(`и ещё ${others - listed} на других экранах`);
+    lines.push(`**Этот же элемент ещё в ${others} ${IN(others)} — поправь и их:** ${parts.join('; ')}`);
+  }
+  if (it.similar) lines.push(`_Та же проблема ещё в ${it.similar} ${IN(it.similar)} у других элементов — без отдельной пометки._`);
+  return lines;
+}
 function markdown(it) {
   const [title, url] = link(it.g);
   const lines = [
     `**DS Review · ${SEV[it.s] || SEV.E}**${CHECK[it.r] ? ` · ${CHECK[it.r]}` : ''}`,
     `**Что не так:** ${it.m}`,
     `**Как исправить:** ${it.fx}`,
+    ...elsewhere(it),
     `**Гайд:** [${title}](${url})`,
   ];
-  if (it.n && it.n > (it.ids || []).length) lines.push(`_Таких мест на экране: ${it.n}, помечены первые ${it.ids.length}._`);
   return lines.join('\n');
 }
 
@@ -118,7 +140,8 @@ for (const it of ITEMS) {
 
 if (MODE === 'dry') {
   return { mode: MODE, wouldClear: annotated.length, wouldAnnotateNodes: plan.size, missing,
-    sample: [...plan.values()].slice(0, 3).map(p => ({ id: p.node.id, name: p.node.name, md: p.md[0] })) };
+    sample: [...plan.values()].slice(0, 3).map(p => ({ id: p.node.id, name: p.node.name, md: p.md[0] })),
+    sampleMore: [...plan.values()].flatMap(p => p.md.filter(m => m.includes('Этот же элемент')).map(md => ({ id: p.node.id, name: p.node.name, md }))).slice(0, 2) };
 }
 
 // 3. Убрать старые пометки DS Review (чужие аннотации остаются)

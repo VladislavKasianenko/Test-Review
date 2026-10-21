@@ -1,7 +1,8 @@
 // Автотест audit.js на заглушке Figma API: каждое правило должно сработать там, где ожидается.
 // Запуск: node tests/mock-audit.mjs ds-review/scripts/audit.js
 import fs from 'node:fs';
-const src = fs.readFileSync(process.argv[2], 'utf8').replace("'__NODE_ID__'", "'1:1'");
+const SRC = fs.readFileSync(process.argv[2], 'utf8');
+const run = async (rootId) => { const fn = new (Object.getPrototypeOf(async function () {}).constructor)(SRC.replace("'__NODE_ID__'", `'${rootId}'`)); return fn(); };
 let idc = 100;
 const vars = { v1: { name: '🍏 surface/primary/default', variableCollectionId: 'c1' }, v2: { name: 'corner/28', variableCollectionId: 'c2' }, v3: { name: '🔴 surface/muted/default', variableCollectionId: 'c1' }, v4: { name: 'neutral/gray/800', variableCollectionId: 'c3' } };
 const cols = { c1: { name: 'theme pack 1' }, c2: { name: 'radius' }, c3: { name: 'color' } };
@@ -14,7 +15,7 @@ function node(type, name, props = {}, children) {
   n.findAll = (fn) => { const out = []; const walk = x => { (x.children || []).forEach(c => { if (fn(c)) out.push(c); walk(c); }); }; walk(n); return out; };
   return n;
 }
-function comp(name, key, remote = true, setName) { const c = { name, key, remote, type: 'COMPONENT' }; if (setName) c.parent = { type: 'COMPONENT_SET', name: setName, key: key + 's' }; return c; }
+function comp(name, key, remote = true, setName) { const c = { id: 'c-' + key, name, key, remote, type: 'COMPONENT' }; if (setName) c.parent = { type: 'COMPONENT_SET', name: setName, key: key + 's' }; return c; }
 function inst(mc, props = {}, children) { const n = node('INSTANCE', mc.parent ? mc.parent.name : mc.name, props, children); n.getMainComponentAsync = async () => mc; n.overrides = props.overrides || []; return n; }
 const solid = (r, g, b, bound) => ({ type: 'SOLID', color: { r, g, b }, visible: true, ...(bound ? { boundVariables: { color: { id: bound } } } : {}) });
 const txt = (chars, style = 's1') => node('TEXT', chars, { characters: chars, textStyleId: style, fills: [solid(0, 0, 0, 'v1')], width: 50, height: 20 });
@@ -45,8 +46,7 @@ globalThis.figma = {
   getStyleByIdAsync: async id => styles[id] || (id === 'sx' ? { name: 'Display' } : null),
   variables: { getVariableByIdAsync: async id => vars[id] || null, getVariableCollectionByIdAsync: async id => cols[id] || null },
 };
-const fn = new (Object.getPrototypeOf(async function () {}).constructor)(src);
-const res = await fn();
+const res = await run('1:1');
 const rules = new Set(Object.keys(res.byRule).map(k => k.split(' ')[1]));
 const expected = ['container-spacing', 'container-radius', 'deprecated-token', 'no-text-style', 'hex', 'manual-bottomsheet', 'deprecated-style', 'primitive', 'icon-hex', 'detached', 'web-component', 'secondary-primary', 'button-order', 'multi-primary', 'illustration-meaning'];
 const missing = expected.filter(r => !rules.has(r));
@@ -56,5 +56,43 @@ if (res.skipped.platform !== 1) errors.push('Компонент 🍋 долже�
 if (res.groups.some(g => g.ids.includes('1:1') && g.r === 'deprecated-style')) errors.push('Тень-подложка экрана не должна помечаться');
 if (res.groups.some(g => /Inline/.test(g.m))) errors.push('Inline button не должен считаться Primary');
 if (res.groups.filter(g => g.r === 'icon-hex').length !== 1) errors.push('Самодельная иконка — ровно одна пометка icon-hex');
+
+// Флоу из двух экранов: локальный компонент «Card» — по 3 копии на каждом экране,
+// поле ввода со скруглением без токена — по одному на экране. Ждём по одной пометке на элемент.
+const card = comp('Card', 'kcard', false);
+const promo = comp('Promo', 'kpromo', false);
+const field = () => node('FRAME', 'Input', { width: 328, height: 56, cornerRadius: 28, topLeftRadius: 28, topRightRadius: 28, bottomLeftRadius: 28, bottomRightRadius: 28, fills: [solid(1, 1, 1, 'v1')] }, [txt('Введите промокод')]);
+// Карточка команды: таймер — самодельный лейбл, условие — самодельная строка списка, кнопка — 🍏 Button, текст со старым стилем
+const cardKids = () => [
+  node('FRAME', 'Frame 12', { layoutMode: 'HORIZONTAL', width: 90, height: 28, cornerRadius: 14, fills: [solid(1, 0.88, 0.7, 'v1')] }, [txt('00:29:45'), node('VECTOR', 'clock', { width: 16, height: 16, fills: [solid(1, 0.3, 0, 'v1')] })]),
+  node('FRAME', 'Condition', { layoutMode: 'HORIZONTAL', width: 300, height: 56 }, [node('VECTOR', 'minus', { width: 24, height: 24, fills: [solid(0.8, 0.8, 0.8, 'v1')] }), node('FRAME', 'Texts', { layoutMode: 'VERTICAL', width: 240, height: 48 }, [txt('Добавьте два сыра'), txt('Осталось добавить один')])]),
+  inst(comp('S', 'kbtn2', true, '🍏 Button / Base / Secondary'), { width: 300, height: 48 }, [txt('Применить')]),
+  txt('Скрыть', 's2'),
+  inst(comp('Timer badge', 'ktimer', false), { width: 80, height: 20 }, [txt('Выгодно', '')]),
+];
+const flowScreen = (id, name, extra = []) => node('FRAME', name, { id, height: 800, fills: [solid(0.9, 0.9, 0.9, 'v1')] }, [inst(card, { width: 328, height: 156 }, cardKids()), inst(card, { width: 328, height: 156 }, cardKids()), inst(card, { width: 328, height: 156 }, cardKids()), field(), ...extra]);
+// Promo — компонент команды, собранный из 🍏 целиком: пометки быть не должно
+const scrA = flowScreen('2:2', 'Галерея промокодов', [inst(promo, { width: 328, height: 100 }, [inst(comp('S', 'kbtn3', true, '🍏 Button / Base / Primary'), { width: 300, height: 48 }, [txt('Перейти')])])]);
+const scrB = flowScreen('2:3', 'Промокод выбран');
+const flow = node('SECTION', 'Промокоды', { id: '2:1', width: 2000, height: 1000 }, [scrA, scrB]);
+flow.parent = page; idx(flow);
+const res2 = await run('2:1');
+const cardG = res2.groups.filter(g => g.r === 'product-component' && /Card/.test(g.m));
+if (cardG.length !== 1) errors.push(`«Card» в 6 местах — ждём 1 пометку, получили ${cardG.length}`);
+else {
+  const g = cardG[0];
+  if (g.ids.length !== 1 || g.n !== 6) errors.push(`«Card»: ждём ids из 1 слоя и n = 6, получили ids ${g.ids.length}, n ${g.n}`);
+  const m = g.more || [];
+  if (m.length !== 2 || m[0].scr !== '2:2' || m[0].n !== 2 || m[1].scr !== '2:3' || m[1].n !== 3) errors.push('«Card»: в more ждём «этот экран — 2» и «Промокод выбран — 3»');
+  for (const [re, what] of [[/«00:29:45».*лейбл/, 'таймер — самодельный лейбл'], [/строка списка/, 'условие — самодельная строка списка'], [/«Скрыть».*🔴 Body/, 'текст со старым стилем'], [/«Timer badge» → «Выгодно» — текст без стиля/, 'вложенный компонент команды стрелкой']]) if (!re.test(g.m)) errors.push(`«Card»: в пометке нет «${what}»`);
+  if (/Применить/.test(g.m)) errors.push('«Card»: 🍏 Button внутри не должна попадать в пометку');
+  if (g.s !== 'E') errors.push('«Card»: старый стиль внутри — критичность E');
+}
+if (res2.groups.some(g => /Promo/.test(g.m))) errors.push('Компонент команды, собранный из 🍏, не помечается');
+if (!(res2.skipped.product >= 1)) errors.push('Чистый компонент команды — в skipped.product');
+if (res2.groups.some(g => g.r === 'multi-primary')) errors.push('Кнопки внутри компонентов команды не считаются Primary экрана');
+const fieldG = res2.groups.filter(g => g.ids.some(id => all[id] && all[id].name === 'Input'));
+if (fieldG.length && fieldG.some(g => !(g.more && g.more.length))) errors.push('Поле ввода на двух экранах — одна пометка со ссылкой на второй экран');
+
 if (errors.length) { console.error('FAIL\n' + errors.join('\n')); process.exit(1); }
-console.log(`OK  tests/mock-audit.mjs: ${res.totals.groups} групп, правил: ${rules.size}`);
+console.log(`OK  tests/mock-audit.mjs: ${res.totals.groups} групп, правил: ${rules.size}; повторы: «Card» ×6 → 1 пометка; состав компонента команды проверяется`);

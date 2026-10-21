@@ -40,6 +40,8 @@ const CFG = {
     effects: 'тени', effectStyleId: 'тени', opacity: 'прозрачность', blendMode: 'прозрачность',
     boundVariables: 'токены',
   },
+  // maxIdsPerGroup — сколько разных элементов с одной проблемой помечать на экране.
+  // Один и тот же элемент в нескольких местах всегда получает одну пометку со списком остальных мест.
   maxScreens: 40, maxGroups: 300, maxIdsPerGroup: 5,
 };
 // Страницы компонентов в Pole Mobile 2.0 → ссылка «как правильно»
@@ -124,9 +126,10 @@ async function boundName(n, key) { const b = n.boundVariables && n.boundVariable
 
 // ---------- находки ----------
 const findings = [];
-const skipped = { platform: 0, system: 0 };
+const skipped = { platform: 0, system: 0, product: 0 }; // product — копии компонентов команд, собранных из 🍏
 let SCR = null;
-const add = (id, r, s, m, fx, g) => findings.push({ id, scr: SCR, r, s, m, fx, g });
+let CAPTURE = null; // внутри компонента продуктовой команды находки копятся сюда и сводятся в одну
+const add = (id, r, s, m, fx, g) => (CAPTURE || findings).push({ id, scr: SCR, r, s, m, fx, g });
 
 const visPaint = (p) => p.visible !== false && (p.opacity === undefined || p.opacity > 0);
 const hasFill = (n) => Array.isArray(n.fills) && n.fills.some(visPaint);
@@ -263,7 +266,7 @@ async function checkGrid(n) {
 // ---------- кнопки и иллюстрации (паттерны) ----------
 const primaries = []; // Primary-кнопки текущего экрана: id пометки
 function notePrimary(markId, label) {
-  primaries.push(markId);
+  if (!CAPTURE) primaries.push(markId); // кнопки внутри карточек команды не считаем Primary экрана
   if (CFG.secondaryLabels.test(label)) add(markId, 'secondary-primary', 'P', `Primary-кнопка «${label}» — слишком акцентно для второстепенного действия`, 'Для «Назад», «Отмена», «Закрыть» используй Secondary или Tertiary. Primary — только для главного действия', 'c:124-41824');
 }
 function noteIllustration(markId, illuName) {
@@ -353,8 +356,68 @@ async function checkInstance(n) {
     else noteIllustration(n.id, mc.name);
     return;
   }
-  if (!mc.remote) add(n.id, 'local-component', 'W', `«${name}» — локальный компонент файла`, 'Проверь, что внутри только 🍏 компоненты и токены. Если элемент нужен многим — приходи в Приёмную ДС', 'guide');
-  else add(n.id, 'non-ds', 'W', `«${name}» — компонент не из ДС (без 🍏)`, 'Если в ДС есть аналог — замени на 🍏 компонент. Если нет — согласуй в Приёмной ДС', 'guide');
+  await checkProduct(n, name, mc);
+}
+
+// ---------- компоненты продуктовых команд ----------
+// Свои компоненты команд (без эмодзи — локальные или из библиотек команд) разрешены,
+// но собраны должны быть из 🍏: лейблы, чипы, строки списка, кнопки, токены, стили.
+// Содержимое проверяется один раз на мастер-компонент, все нарушения внутри — одна находка на копию.
+let FILE_KEY = null; try { FILE_KEY = figma.fileKey || null; } catch (e) {}
+const prodCache = new Map(); let prodDepth = 0;
+const GENERIC = /^(Frame|Group|Rectangle|Vector|Ellipse|Container|Content|Wrapper|Text|Auto ?layout)\s*\d*$/i;
+const firstText = (x) => { const t = 'children' in x ? x.findAllWithCriteria({ types: ['TEXT'] }).find(t => t.characters.trim()) : null; return t ? t.characters.trim() : ''; };
+function describe(x) {
+  if (!x) return 'слой';
+  if (x.type === 'TEXT') return `«${x.characters.trim().slice(0, 28)}»`;
+  const nm = x.name.trim(), t = firstText(x);
+  return `«${(GENERIC.test(nm) && t ? t : nm).slice(0, 28)}»`;
+}
+// Самодельный элемент вместо 🍏 компонента: [что это, чем заменить, гайд]
+function lookalike(n) {
+  if (n.type !== 'FRAME' || !n.layoutMode || n.layoutMode === 'NONE') return null;
+  const kids = n.children.filter(c => c.visible !== false);
+  const texts = kids.filter(c => c.type === 'TEXT');
+  const filled = (hasFill(n) || hasStroke(n)) && maxR(n) > 0;
+  if (filled && n.height <= 32 && texts.length === 1 && kids.length <= 3) return ['самодельный лейбл или чип', '🍏 Label, 🍏 Chips или 🍏 Badge', 'c:130-44627'];
+  if (filled && n.height >= 36 && n.height <= 56 && n.width >= 100 && texts.length === 1 && kids.length <= 2) return ['самодельная кнопка', '🍏 Button', 'c:124-41824'];
+  const stack = (c) => c.type === 'FRAME' && c.layoutMode === 'VERTICAL' && c.findAllWithCriteria({ types: ['TEXT'] }).length >= 2;
+  const small = (c) => c.type === 'INSTANCE' || VEC.includes(c.type) || (c.width <= 48 && c.height <= 48);
+  if (n.layoutMode === 'HORIZONTAL' && n.width >= 200 && kids.some(stack) && kids.some(c => !stack(c) && small(c))) return ['самодельная строка списка', '🍏 List', 'c:135-44644'];
+  return null;
+}
+const PROD_SKIP = ['off-grid', 'radius-unbound', 'unknown-token', 'hidden-layer', 'multi-primary'];
+async function summarize(got) {
+  const by = new Map(); let sev = null;
+  for (const f of got) {
+    if (PROD_SKIP.includes(f.r)) continue;
+    sev = f.s === 'E' || sev === 'E' ? 'E' : f.s === 'P' || sev === 'P' ? 'P' : 'W';
+    // вложенный компонент команды: «Label ads» → «Реклама» — текст без стиля
+    if (f.r === 'product-component') { const p = f.p || []; by.set(f.m, { m: `«${f.name}» → ${p.length > 1 ? `(${p.join('; ')})` : p[0]}`, names: [] }); continue; }
+    if (f.m.startsWith('«')) { by.set(f.m, by.get(f.m) || { m: f.m, names: [] }); continue; } // имя уже в тексте
+    const x = await figma.getNodeByIdAsync(f.id);
+    const b = by.get(f.m) || { m: f.m.charAt(0).toLowerCase() + f.m.slice(1), names: [] };
+    const d = describe(x); if (!b.names.includes(d)) b.names.push(d);
+    by.set(f.m, b);
+  }
+  const parts = [...by.values()].map(b => b.names.length ? `${b.names.slice(0, 3).join(', ')}${b.names.length > 3 ? ` и ещё ${b.names.length - 3}` : ''} — ${b.m}` : b.m);
+  return { sev, parts: parts.length > 6 ? [...parts.slice(0, 6), `и ещё ${parts.length - 6}`] : parts };
+}
+async function checkProduct(n, name, mc) {
+  let res = prodCache.get(mc.id);
+  if (!res) {
+    if (prodDepth >= 3) return;
+    const prev = CAPTURE; CAPTURE = []; prodDepth++;
+    for (const c of n.children || []) await walk(c, Infinity);
+    const got = CAPTURE; CAPTURE = prev; prodDepth--;
+    res = await summarize(got); prodCache.set(mc.id, res);
+  }
+  if (!res.parts.length) { skipped.product++; return; }
+  const where = mc.remote ? 'Компонент лежит в библиотеке команды — поправь его там и опубликуй обновление'
+    : `Правь мастер-компонент${FILE_KEY ? ` ([открыть](https://www.figma.com/design/${FILE_KEY}/?node-id=${mc.id.replace(/:/g, '-')}))` : ''}`;
+  add(n.id, 'product-component', res.sev, `«${name}» — компонент команды собран не только из 🍏. Внутри: ${res.parts.join('; ')}`,
+    `Собери «${name}» из 🍏 компонентов: лейблы и чипы — 🍏 Label / Chips / Badge, строки — 🍏 List, кнопки — 🍏 Button, цвета и тексты — 🍏 токены и стили. ${where} — исправится во всех копиях`, 'guide');
+  Object.assign((CAPTURE || findings).at(-1), { p: res.parts, name }); // для сводки, если этот компонент вложен в другой
 }
 
 // ---------- обход ----------
@@ -392,6 +455,10 @@ async function walk(n, screenW) {
   }
   if (!('children' in n)) return 0;
   const isFrame = t === 'FRAME' || t === 'COMPONENT';
+  if (isFrame && CAPTURE && n.id !== SCR) {
+    const lk = lookalike(n);
+    if (lk) { add(n.id, 'ds-lookalike', 'W', `${lk[0]} вместо ${lk[1]}`, `Замени на ${lk[1]}`, lk[2]); return 0; }
+  }
   if (isFrame) {
     await checkPaints(n, 'fills'); await checkPaints(n, 'strokes');
     if (n.id !== SCR) await checkEffects(n); // тень у самого экрана — оформление холста
@@ -430,21 +497,52 @@ for (const s of screens) {
 }
 
 // ---------- группировка ----------
+// Один и тот же элемент с одной проблемой — одна пометка на первом месте.
+// Элемент = мастер-компонент для инстансов, имя + ширина слоя для остального (копии на разных экранах).
+// Остальные места — в `more`: [{ scr, name, id, n }] по экранам.
+const subCache = new Map();
+async function subject(id) {
+  if (subCache.has(id)) return subCache.get(id);
+  let s = id; const n = await figma.getNodeByIdAsync(id);
+  if (n && n.type === 'INSTANCE') { const { mc, set } = await master(n); s = mc ? 'c:' + (set ? set.key : mc.key) : 'n:' + n.name.trim(); }
+  else if (n) s = `n:${n.name.trim()}|${Math.round(n.width || 0)}`;
+  subCache.set(id, s); return s;
+}
+const scrIdx = new Map(screens.map((s, i) => [s.id, i]));
 const groups = new Map();
 for (const f of findings) {
-  const k = `${f.scr}|${f.r}|${f.m}`;
+  const k = `${f.r}|${f.m}|${await subject(f.id)}`;
   let g = groups.get(k);
-  if (!g) { g = { ids: [], n: 0, scr: f.scr, r: f.r, s: f.s, m: f.m, fx: f.fx, g: f.g }; groups.set(k, g); }
-  g.n++; if (g.ids.length < CFG.maxIdsPerGroup && !g.ids.includes(f.id)) g.ids.push(f.id);
+  if (!g) { g = { ids: [f.id], n: 0, scr: f.scr, r: f.r, s: f.s, m: f.m, fx: f.fx, g: f.g, at: new Map(), seen: new Set() }; groups.set(k, g); }
+  if (g.seen.has(f.id)) continue;
+  g.seen.add(f.id); g.n++;
+  if (f.id === g.ids[0]) continue;
+  const a = g.at.get(f.scr) || { scr: f.scr, id: f.id, n: 0 }; a.n++; g.at.set(f.scr, a);
+}
+// Разные элементы с одной проблемой на одном экране — не больше maxIdsPerGroup пометок, остальное — в `similar`
+const perScr = new Map(); const out = [];
+const sname = (id) => { const s = screens[scrIdx.get(id)]; const nm = s ? s.name : ''; return nm.length > 40 ? nm.slice(0, 39) + '…' : nm; };
+for (const g of groups.values()) {
+  const k = `${g.scr}|${g.r}|${g.m}`;
+  const first = perScr.get(k);
+  if (!first) perScr.set(k, { g, cnt: 1 });
+  else if (first.cnt >= CFG.maxIdsPerGroup) { first.g.similar = (first.g.similar || 0) + g.n; continue; }
+  else first.cnt++;
+  const more = [...g.at.values()].sort((a, b) => (a.scr === g.scr ? -1 : b.scr === g.scr ? 1 : scrIdx.get(a.scr) - scrIdx.get(b.scr)))
+    .slice(0, 8).map(a => ({ scr: a.scr, name: sname(a.scr), id: a.id, n: a.n }));
+  delete g.at; delete g.seen;
+  if (more.length) g.more = more;
+  out.push(g);
 }
 const ORDER = { E: 0, P: 1, W: 2 };
-const all = [...groups.values()].sort((a, b) => ORDER[a.s] - ORDER[b.s]);
+const all = out.sort((a, b) => ORDER[a.s] - ORDER[b.s]);
 const byRule = {};
 for (const f of findings) { const k = `${f.s} ${f.r}`; byRule[k] = (byRule[k] || 0) + 1; }
 return {
   root: { id: root.id, name: root.name, type: root.type, page: page.name },
   screens: screens.map(s => ({ id: s.id, name: s.name })),
   truncatedScreens,
+  // groups — сколько будет пометок; errors/patterns/checks — сколько мест всего
   totals: { errors: findings.filter(f => f.s === 'E').length, patterns: findings.filter(f => f.s === 'P').length, checks: findings.filter(f => f.s === 'W').length, groups: all.length },
   byRule,
   skipped, // не проверялись: 🍋 компоненты Платформы, системные элементы

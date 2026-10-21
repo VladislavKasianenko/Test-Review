@@ -12,8 +12,10 @@ for f in ds-review/scripts/*.js; do
   if node --check "$out"; then
     size=$(wc -m < "$f")
     echo "OK  $f ($size символов)"
-    # use_figma принимает код до 50 000 символов; annotate.js ещё дополняется пунктами ITEMS
-    if [ "$size" -gt 45000 ]; then echo "ERR $f: больше 45 000 символов — use_figma не примет код с запасом"; status=1; fi
+    # use_figma принимает код до 50 000 символов. audit.js и outline.js уходят почти как есть (подставляется только ROOT_ID),
+    # annotate.js дополняется пунктами ITEMS — ему нужен запас ~30 000 символов.
+    case "$f" in *annotate.js) limit=20000 ;; *) limit=47000 ;; esac
+    if [ "$size" -gt "$limit" ]; then echo "ERR $f: больше $limit символов — use_figma не примет код с запасом"; status=1; fi
   else
     echo "ERR $f"; status=1
   fi
